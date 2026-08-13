@@ -15,6 +15,8 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 
 vgg16_model = None
 mobilenet_model = None
+vgg_error = None
+mobilenet_error = None
 CLASSES = ['fire', 'nofire', 'smoke', 'smokefire']
 IMG_SIZE = (224, 224)
 
@@ -23,12 +25,14 @@ try:
     vgg16_model = keras.models.load_model('VGG16model(76.25%).keras')
     print("VGG16 loaded successfully.")
 except Exception as e:
+    vgg_error = str(e)
     print(f"Error loading VGG16: {e}")
 
 try:
     mobilenet_model = keras.models.load_model('mobilenet_fire_model(73.00%).keras')
     print("MobileNetV2 loaded successfully.")
 except Exception as e:
+    mobilenet_error = str(e)
     print(f"Error loading MobileNetV2: {e}")
 
 def prepare_image(image_bytes):
@@ -42,7 +46,13 @@ def prepare_image(image_bytes):
 
 @app.route('/', methods=['GET'])
 def health_check():
-    return jsonify({"status": "API is running. Use POST /predict to classify images."})
+    return jsonify({
+        "status": "API is running. Use POST /predict to classify images.",
+        "vgg16_loaded": vgg16_model is not None,
+        "mobilenet_loaded": mobilenet_model is not None,
+        "vgg_error": vgg_error,
+        "mobilenet_error": mobilenet_error
+    })
 
 @app.route('/predict', methods=['POST', 'OPTIONS'])
 def predict():
