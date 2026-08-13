@@ -18,19 +18,13 @@ from keras.applications.mobilenet_v2 import preprocess_input as mobilenet_prepro
 
 vgg16_model = None
 mobilenet_model = None
-vgg_error = None
+vgg_error = "Disabled to save memory on Render Free Tier (OOM prevention)"
 mobilenet_error = None
 CLASSES = ['fire', 'nofire', 'smoke', 'smokefire']
 IMG_SIZE = (224, 224)
 
 print("Loading models for Render API...")
-try:
-    vgg16_model = keras.models.load_model('VGG16model(76.25%).keras', custom_objects={'preprocess_input': vgg_preprocess})
-    print("VGG16 loaded successfully.")
-except Exception as e:
-    vgg_error = str(e)
-    print(f"Error loading VGG16: {e}")
-
+# We ONLY load MobileNetV2 because VGG16 + TensorFlow exceeds 512MB RAM on free tier!
 try:
     mobilenet_model = keras.models.load_model('mobilenet_fire_model(73.00%).keras', custom_objects={'preprocess_input': mobilenet_preprocess})
     print("MobileNetV2 loaded successfully.")
@@ -73,17 +67,29 @@ def predict():
         preds_vgg = None
         preds_mobilenet = None
         
-        if model_choice in ['vgg16', 'ensemble'] and vgg16_model:
+        if model_choice in ['vgg16', 'ensemble'] and vgg16_model is not None:
             preds_vgg = vgg16_model.predict(img_array, verbose=0)
             
-        if model_choice in ['mobilenet', 'ensemble'] and mobilenet_model:
+        if model_choice in ['mobilenet', 'ensemble'] and mobilenet_model is not None:
             preds_mobilenet = mobilenet_model.predict(img_array, verbose=0)
             
+        # Fallback logic to prevent NoneType errors
         if model_choice == 'ensemble':
-            final_preds = (preds_vgg + preds_mobilenet) / 2.0
+            if preds_vgg is not None and preds_mobilenet is not None:
+                final_preds = (preds_vgg + preds_mobilenet) / 2.0
+            elif preds_mobilenet is not None:
+                final_preds = preds_mobilenet # Fallback to mobilenet if VGG failed/OOM
+            elif preds_vgg is not None:
+                final_preds = preds_vgg
+            else:
+                return jsonify({'error': 'No models could be loaded. Prediction failed.'}), 500
         elif model_choice == 'vgg16':
+            if preds_vgg is None:
+                return jsonify({'error': 'VGG16 model is disabled due to memory limits.'}), 400
             final_preds = preds_vgg
         elif model_choice == 'mobilenet':
+            if preds_mobilenet is None:
+                return jsonify({'error': 'MobileNet model failed to load.'}), 500
             final_preds = preds_mobilenet
         else:
             return jsonify({'error': 'Invalid model choice'}), 400
