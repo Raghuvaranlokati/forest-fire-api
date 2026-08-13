@@ -13,18 +13,14 @@ app = Flask(__name__)
 # Allow CORS for all domains so your React app on Vercel can access it
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-from keras.applications.vgg16 import preprocess_input as vgg_preprocess
 from keras.applications.mobilenet_v2 import preprocess_input as mobilenet_preprocess
 
-vgg16_model = None
 mobilenet_model = None
-vgg_error = "Disabled to save memory on Render Free Tier (OOM prevention)"
 mobilenet_error = None
 CLASSES = ['fire', 'nofire', 'smoke', 'smokefire']
 IMG_SIZE = (224, 224)
 
-print("Loading models for Render API...")
-# We ONLY load MobileNetV2 because VGG16 + TensorFlow exceeds 512MB RAM on free tier!
+print("Loading MobileNetV2 for Render API...")
 try:
     mobilenet_model = keras.models.load_model('mobilenet_fire_model(73.00%).keras', custom_objects={'preprocess_input': mobilenet_preprocess})
     print("MobileNetV2 loaded successfully.")
@@ -44,10 +40,8 @@ def prepare_image(image_bytes):
 @app.route('/', methods=['GET'])
 def health_check():
     return jsonify({
-        "status": "API is running. Use POST /predict to classify images.",
-        "vgg16_loaded": vgg16_model is not None,
+        "status": "API is running. Only MobileNetV2 is loaded to stay within the 512MB RAM limit.",
         "mobilenet_loaded": mobilenet_model is not None,
-        "vgg_error": vgg_error,
         "mobilenet_error": mobilenet_error
     })
 
@@ -60,46 +54,22 @@ def predict():
         return jsonify({'error': 'No image provided'}), 400
     
     file = request.files['image']
-    model_choice = request.form.get('model', 'ensemble') 
     
+    if mobilenet_model is None:
+        return jsonify({'error': f'MobileNet model failed to load during startup: {mobilenet_error}'}), 500
+        
     try:
         img_array = prepare_image(file.read())
-        preds_vgg = None
-        preds_mobilenet = None
         
-        if model_choice in ['vgg16', 'ensemble'] and vgg16_model is not None:
-            preds_vgg = vgg16_model.predict(img_array, verbose=0)
-            
-        if model_choice in ['mobilenet', 'ensemble'] and mobilenet_model is not None:
-            preds_mobilenet = mobilenet_model.predict(img_array, verbose=0)
-            
-        # Fallback logic to prevent NoneType errors
-        if model_choice == 'ensemble':
-            if preds_vgg is not None and preds_mobilenet is not None:
-                final_preds = (preds_vgg + preds_mobilenet) / 2.0
-            elif preds_mobilenet is not None:
-                final_preds = preds_mobilenet # Fallback to mobilenet if VGG failed/OOM
-            elif preds_vgg is not None:
-                final_preds = preds_vgg
-            else:
-                return jsonify({'error': 'No models could be loaded. Prediction failed.'}), 500
-        elif model_choice == 'vgg16':
-            if preds_vgg is None:
-                return jsonify({'error': 'VGG16 model is disabled due to memory limits.'}), 400
-            final_preds = preds_vgg
-        elif model_choice == 'mobilenet':
-            if preds_mobilenet is None:
-                return jsonify({'error': 'MobileNet model failed to load.'}), 500
-            final_preds = preds_mobilenet
-        else:
-            return jsonify({'error': 'Invalid model choice'}), 400
+        # We completely ignore the 'model' parameter from the frontend and ONLY use MobileNet
+        final_preds = mobilenet_model.predict(img_array, verbose=0)
             
         class_idx = np.argmax(final_preds[0])
         class_name = CLASSES[class_idx]
         confidence = float(final_preds[0][class_idx]) * 100
         probabilities = {CLASSES[i]: float(final_preds[0][i]) * 100 for i in range(len(CLASSES))}
         
-        return jsonify({'prediction': class_name, 'confidence': confidence, 'probabilities': probabilities, 'model_used': model_choice})
+        return jsonify({'prediction': class_name, 'confidence': confidence, 'probabilities': probabilities, 'model_used': 'mobilenet_v2'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
