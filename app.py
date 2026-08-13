@@ -13,6 +13,9 @@ app = Flask(__name__)
 # Allow CORS for all domains so your React app on Vercel can access it
 CORS(app, resources={r"/*": {"origins": "*"}})
 
+from keras.applications.vgg16 import preprocess_input as vgg_preprocess
+from keras.applications.mobilenet_v2 import preprocess_input as mobilenet_preprocess
+
 vgg16_model = None
 mobilenet_model = None
 vgg_error = None
@@ -22,14 +25,14 @@ IMG_SIZE = (224, 224)
 
 print("Loading models for Render API...")
 try:
-    vgg16_model = keras.models.load_model('VGG16model(76.25%).keras')
+    vgg16_model = keras.models.load_model('VGG16model(76.25%).keras', custom_objects={'preprocess_input': vgg_preprocess})
     print("VGG16 loaded successfully.")
 except Exception as e:
     vgg_error = str(e)
     print(f"Error loading VGG16: {e}")
 
 try:
-    mobilenet_model = keras.models.load_model('mobilenet_fire_model(73.00%).keras')
+    mobilenet_model = keras.models.load_model('mobilenet_fire_model(73.00%).keras', custom_objects={'preprocess_input': mobilenet_preprocess})
     print("MobileNetV2 loaded successfully.")
 except Exception as e:
     mobilenet_error = str(e)
